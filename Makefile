@@ -17,6 +17,11 @@
 #	make MOREFLAGS="-march=native"
 # or
 #	make USER_CFLAGS="-march=native" USER_CXXFLAGS="-march=native"
+#
+# $CFLAGS, $CXXFLAGS and $LDFLAGS from the environment will be picked up, but
+# have lower priority than project's own flags. To give priority to $*FLAGS,
+# use:
+#	make HONORFLAGS=1
 
 # direct GNU Make to search the directories relative to the
 # parent directory of this file
@@ -34,20 +39,33 @@ all:
 
 ifeq ($(BUILD_ARCH),32-bit)
     CODE_FLAGS += -m32
-    LDFLAGS += -m32
+    LINK_FLAGS += -m32
     DONT_BUILD_LZSSE ?= 1
     # lzham's 64 MB dict overflows the 32-bit address space (see TARGET_ARCH note below)
     DONT_BUILD_LZHAM ?= 1
 endif
 
-CC?=gcc
+CUDA_BASE ?= /usr/local/cuda
+LIBCUDART=$(wildcard $(CUDA_BASE)/lib64/libcudart.so)
+
+ifneq "$(LIBCUDART)" ""
+ifneq "$(NVCC_CCBIN)" ""
+ifneq "$(USE_CUDA_CCBIN)" ""
+    CC = $(subst clang++,clang,$(subst g++,gcc,$(NVCC_CCBIN)))
+    CXX = $(NVCC_CCBIN)
+endif
+endif
+endif
+
+CC ?= gcc
+CXX ?= g++
 
 COMPILER = $(shell $(CC) -v 2>&1 | grep -q "clang version" && echo clang || echo gcc)
 GCC_VERSION = $(shell echo | $(CC) -dM -E - | grep __VERSION__  | sed -e 's:\#define __VERSION__ "\([0-9.]*\).*:\1:' -e 's:\.\([0-9][0-9]\):\1:g' -e 's:\.\([0-9]\):0\1:g')
 CLANG_VERSION = $(shell $(CC) -v 2>&1 | grep "clang version" | sed -e 's:.*version \([0-9.]*\).*:\1:' -e 's:\.\([0-9][0-9]\):\1:g' -e 's:\.\([0-9]\):0\1:g')
 
 # LZSSE requires compiler with __SSE4_1__ support and 64-bit CPU
-ifneq ($(shell echo|$(CC) -dM -E - -march=native 2>/dev/null|egrep -c '__(SSE4_1|x86_64)__'), 2)
+ifneq ($(shell $(CC) </dev/null 2>/dev/null -dM -E - -march=native | grep -Ec '__(SSE4_1|x86_64)__'), 2)
     DONT_BUILD_LZSSE ?= 1
 endif
 
@@ -67,7 +85,7 @@ ifneq (,$(filter Windows%,$(OS)))
     THREAD_MODEL := $(or $(THREAD_MODEL),win32)
     BUILD_STATIC ?= 1
     ifeq ($(BUILD_STATIC),1)
-        LDFLAGS += -lshell32 -lole32 -loleaut32 -static
+        LINK_FLAGS += -lshell32 -lole32 -loleaut32 -static
     endif
 else
     THREAD_MODEL := $(or $(THREAD_MODEL),posix)
@@ -123,13 +141,15 @@ else
     endif
 
     ifeq ($(BUILD_STATIC),1)
-        LDFLAGS	+= -static -static-libstdc++
+        LINK_FLAGS	+= -static -static-libstdc++
     endif
 endif
 
 
 DEFINES     += -I.
-CODE_FLAGS  += -Wno-unknown-pragmas -Wno-sign-compare -Wno-conversion
+CODE_FLAGS  += -Wno-unknown-pragmas -Wno-sign-compare -Wno-conversion -Wno-error=int-conversion
+LINK_FLAGS  += -pthread
+LDLIBS_LIBDL =
 
 # don't use "-ffast-math" for clang < 10.0
 ifeq (1, $(shell [ "$(COMPILER)" = "clang" ] && expr $(CLANG_VERSION) \< 100000 ))
@@ -146,6 +166,18 @@ else
     OPT_FLAGS_O3 = $(OPT_FLAGS) -O3 -DNDEBUG
 endif
 
+ifeq ($(HONORFLAGS), )
+    # our flags take priority (normal case)
+    EXTCFLAGS := $(CFLAGS)
+    EXTCXXFLAGS := $(CXXFLAGS)
+    EXTLDFLAGS := $(LDFLAGS)
+else
+    # user flags take priority
+    USER_CFLAGS := $(CFLAGS)
+    USER_CXXFLAGS := $(CXXFLAGS)
+    USER_LDFLAGS := $(LDFLAGS)
+endif
+
 # Automatic header dependencies. -MMD writes "<object>.d" next to each object,
 # listing every file the translation unit included; -MP adds a phony target for
 # each of them so that deleting or renaming a header does not break the next
@@ -156,12 +188,11 @@ endif
 # fall back to the old behaviour on a compiler that does not understand them.
 DEPFLAGS := $(shell printf 'int main(){return 0;}' | $(CXX) -x c++ - -MMD -MP -MF /dev/null -c -o /dev/null 2>/dev/null && printf -- '-MMD -MP')
 
-CXXFLAGS  = $(CODE_FLAGS) $(OPT_FLAGS_O3) $(DEFINES) $(MOREFLAGS) $(USER_CXXFLAGS) $(DEPFLAGS)
-CFLAGS    = $(CODE_FLAGS) $(OPT_FLAGS_O3) $(DEFINES) $(MOREFLAGS) $(USER_CFLAGS) $(DEPFLAGS)
-CFLAGS_O2 = $(CODE_FLAGS) $(OPT_FLAGS_O2) $(DEFINES) $(MOREFLAGS) $(USER_CFLAGS) $(DEPFLAGS)
-# nvcc does not reliably accept -MMD/-MP, so CUDA rules use the host flags without them
-CUDA_HOST_CXXFLAGS = $(filter-out $(DEPFLAGS),$(CXXFLAGS))
-LDFLAGS  += -pthread $(MOREFLAGS) $(USER_LDFLAGS)
+CXXFLAGS  = $(EXTCXXFLAGS) $(CODE_FLAGS) $(OPT_FLAGS_O3) $(DEFINES) $(MOREFLAGS) $(USER_CXXFLAGS) $(DEPFLAGS)
+CFLAGS    = $(EXTCFLAGS)   $(CODE_FLAGS) $(OPT_FLAGS_O3) $(DEFINES) $(MOREFLAGS) $(USER_CFLAGS)   $(DEPFLAGS)
+CFLAGS_O2 = $(EXTCFLAGS)   $(CODE_FLAGS) $(OPT_FLAGS_O2) $(DEFINES) $(MOREFLAGS) $(USER_CFLAGS)   $(DEPFLAGS)
+LDFLAGS   = $(EXTLDFLAGS)  $(LINK_FLAGS)                            $(MOREFLAGS) $(USER_LDFLAGS)  $(DEPFLAGS)
+LDLIBS    = $(LDLIBS_LIBDL)
 ifeq ($(detected_OS), Darwin)
     CXXFLAGS += -std=c++14
 endif
@@ -999,7 +1030,7 @@ else
     BSC_CXX_FILES += bwt/libbsc/libbsc/platform/platform.o
     BSC_CXX_FILES += bwt/libbsc/libbsc/st/st.o
 
-    LDFLAGS_LIBDL  = $(LIBDL)
+    LDLIBS_LIBDL   = $(LIBDL)
 endif
 
 
@@ -1129,9 +1160,14 @@ ifeq "$(ENABLE_CUDA)" "1"
     CUDA_H =
   else
     DEFINES += -DBENCH_HAS_CUDA -I$(CUDA_BASE)/include
-    LDFLAGS += -L$(CUDA_BASE)/lib64 -lcudart -Wl,-rpath=$(CUDA_BASE)/lib64
+    LINK_FLAGS += -L$(CUDA_BASE)/lib64 -lcudart -Wl,-rpath=$(CUDA_BASE)/lib64
     CUDA_COMPILER = nvcc
     CUDA_CC = $(CUDA_BASE)/bin/nvcc --compiler-bindir $(CXX)
+    ifneq "$(NVCC_CCBIN)" ""
+        CUDA_CC += --compiler-bindir $(NVCC_CCBIN)
+    else
+        CUDA_CC += --compiler-bindir $(CXX)
+    endif
     CUDA_VERSION := $(shell awk '$$1 == "#define" && $$2 == "CUDA_VERSION" { print $$3; exit;}' $(CUDA_H))
     ifeq "$(CUDA_VERSION)" ""
       $(error Could not determine CUDA_VERSION from $(CUDA_H))
@@ -1156,6 +1192,12 @@ ifeq "$(ENABLE_CUDA)" "1"
 	  echo c++14; \
       fi)
     CUDA_CXXFLAGS = -x cu -std=$(CUDA_CXXSTD) -O3 $(foreach ARCH, $(CUDA_ARCH), --generate-code=arch=compute_$(ARCH),code=[compute_$(ARCH),sm_$(ARCH)]) --expt-extended-lambda -forward-unknown-to-host-compiler -Wno-deprecated-gpu-targets
+    CUDA_CXXFLAGS += $(CXXFLAGS)
+    # drop flags that are likely to cause incompatibilities
+    CUDA_CXXFLAGS := $(filter-out -Wno-error% -Werror%,$(CUDA_CXXFLAGS)) -Wno-error
+    # nvcc does not reliably accept -MMD/-MP, so CUDA rules use the host flags without them
+    CUDA_CXXFLAGS := $(filter-out $(DEPFLAGS),$(CUDA_CXXFLAGS))
+
 
     ACEAPEX_CUDA_FILES = lz/aceapex/cuda/aceapex_cuda.cu.o lz/aceapex/cuda/aceapex_cuda_lzbench.o
 
@@ -1172,7 +1214,7 @@ ifeq "$(ENABLE_CUDA)" "1"
     NVCOMP_CU_SRC  = $(wildcard misc/nvcomp/src/*.cu misc/nvcomp/src/lowlevel/*.cu)
     NVCOMP_CU_OBJ  = $(NVCOMP_CU_SRC:%=%.o)
     NVCOMP_FILES   = $(NVCOMP_CU_OBJ) $(NVCOMP_CPP_OBJ)
-    LDFLAGS_LIBDL  = $(LIBDL)
+    LDLIBS_LIBDL   = $(LIBDL)
   endif
 
   ifneq "$(DONT_BUILD_BSC)" "1"
@@ -1192,7 +1234,7 @@ MKDIR = mkdir -p
 LZBENCH_OBJS = $(BUGGY_C_FILES) $(BUGGY_CC_FILES) $(BUGGY_CXX_FILES) $(ACEAPEX_FILES) $(BSC_C_FILES) $(BSC_CXX_FILES) $(BSC_CUDA_FILES) $(ACEAPEX_CUDA_FILES) $(GPUCOMPACT_FILES) $(BZIP2_FILES) $(BZIP3_FILES) $(LBZIP2_FILES) $(CSC_FILES) $(KANZI_FILES) $(FASTLZMA2_OBJ) $(ZSTD_FILES) $(LZSSE_FILES) $(LZFSE_FILES) $(XZ_FILES) $(LIBLZG_FILES) $(BRIEFLZ_FILES) $(LZF_FILES) $(BROTLI_FILES) $(LZMA_FILES) $(ZLING_FILES) $(QUICKLZ_FILES) $(OPENZL_C_FILES) $(OPENZL_S_FILES) $(SNAPPY_FILES) $(ZLIB_FILES) $(ZLIB_NG_FILES) $(LZHAM_FILES) $(LZO_FILES) $(UCL_FILES) $(LZ4_FILES) $(LIZARD_FILES) $(LIBDEFLATE_FILES) $(ZXC_FILES) $(MISA77_FILES) $(MISC_FILES) $(NVCOMP_FILES) $(PPMD_FILES) $(BENCH_FILES) $(SKIM_FILE)
 
 lzbench: $(LZBENCH_OBJS)
-	$(CXX) $^ -o $@ $(LDFLAGS) $(LDFLAGS_LIBDL)
+	$(CXX) $^ -o $@ $(LDFLAGS) $(LDLIBS)
 	@echo Linked GCC_VERSION=$(GCC_VERSION) CLANG_VERSION=$(CLANG_VERSION) COMPILER=$(COMPILER)
 
 $(BENCH_MAIN): bench/lzbench.cpp bench/lzbench.h bench/threadpool.h bench/codecs.h DENSITY_LIB
@@ -1332,7 +1374,7 @@ misc/zpaq/libzpaq.o: misc/zpaq/libzpaq.cpp
 # CUDA compressors
 $(NVCOMP_CU_OBJ): %.cu.o: %.cu
 	@$(MKDIR) $(dir $@)
-	$(CUDA_CC) $(CUDA_CXXFLAGS) $(CUDA_HOST_CXXFLAGS) -Imisc/nvcomp/include -Imisc/nvcomp/src -Imisc/nvcomp/src/lowlevel -c $< -o $@
+	$(CUDA_CC) $(CUDA_CXXFLAGS) -Imisc/nvcomp/include -Imisc/nvcomp/src -Imisc/nvcomp/src/lowlevel -c $< -o $@
 
 $(NVCOMP_CPP_OBJ): %.cpp.o: %.cpp
 	@$(MKDIR) $(dir $@)
@@ -1365,7 +1407,7 @@ lz/gpucompact/gpucompact_lzbench.o: lz/gpucompact/gpucompact_lzbench.cpp
 
 $(BSC_CUDA_FILES): %.cu.o: %.cu
 	@$(MKDIR) $(dir $@)
-	$(CUDA_CC) $(CUDA_CXXFLAGS) $(CUDA_HOST_CXXFLAGS) $(BSC_FLAGS) -c $< -o $@
+	$(CUDA_CC) $(CUDA_CXXFLAGS) $(BSC_FLAGS) -c $< -o $@
 
 DENSITY_LIB:
 ifneq ($(DONT_BUILD_DENSITY),1)
