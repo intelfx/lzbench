@@ -7,6 +7,10 @@ _visual/
 misc/density/src/target/
 misc/density/src/Cargo.lock
 
+# Snappy CMake-based config
+lz/snappy/build*/
+lz/snappy/config.h
+
 # Archives
 *.zip
 
