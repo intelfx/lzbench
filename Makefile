@@ -18,7 +18,6 @@
 # or
 #	make USER_CFLAGS="-march=native" USER_CXXFLAGS="-march=native"
 
-
 # direct GNU Make to search the directories relative to the
 # parent directory of this file
 
@@ -29,6 +28,9 @@ vpath %.cc $(SOURCE_PATH)
 vpath %.cpp $(SOURCE_PATH)
 vpath bench/lzbench.h $(SOURCE_PATH)
 vpath wflz/wfLZ.h $(SOURCE_PATH)
+
+# define first target
+all:
 
 ifeq ($(BUILD_ARCH),32-bit)
     CODE_FLAGS += -m32
@@ -741,6 +743,7 @@ ifeq "$(DONT_BUILD_SNAPPY)" "1"
     DEFINES += -DBENCH_REMOVE_SNAPPY
 else
     SNAPPY_FILES = lz/snappy/snappy-sinksource.o lz/snappy/snappy-stubs-internal.o lz/snappy/snappy.o
+    SNAPPY_CONFIG = lz/snappy/config.h lz/snappy/snappy-stubs-public.h
     ifeq ($(HAVE_BUILTIN_CTZ), 1)
         SNAPPY_FLAGS += -DHAVE_BUILTIN_CTZ
     endif
@@ -1146,6 +1149,10 @@ ifeq "$(ENABLE_CUDA)" "1"
 endif # ifeq "$(ENABLE_CUDA)"
 
 
+
+# must be first target
+all: lzbench
+
 MKDIR = mkdir -p
 
 lzbench: $(BUGGY_C_FILES) $(BUGGY_CC_FILES) $(BUGGY_CXX_FILES) $(ACEAPEX_FILES) $(BSC_C_FILES) $(BSC_CXX_FILES) $(BSC_CUDA_FILES) $(ACEAPEX_CUDA_FILES) $(GPUCOMPACT_FILES) $(BZIP2_FILES) $(BZIP3_FILES) $(LBZIP2_FILES) $(CSC_FILES) $(KANZI_FILES) $(FASTLZMA2_OBJ) $(ZSTD_FILES) $(LZSSE_FILES) $(LZFSE_FILES) $(XZ_FILES) $(LIBLZG_FILES) $(BRIEFLZ_FILES) $(LZF_FILES) $(BROTLI_FILES) $(LZMA_FILES) $(ZLING_FILES) $(QUICKLZ_FILES) $(OPENZL_C_FILES) $(OPENZL_S_FILES) $(SNAPPY_FILES) $(ZLIB_FILES) $(ZLIB_NG_FILES) $(LZHAM_FILES) $(LZO_FILES) $(UCL_FILES) $(LZ4_FILES) $(LIZARD_FILES) $(LIBDEFLATE_FILES) $(ZXC_FILES) $(MISA77_FILES) $(MISC_FILES) $(NVCOMP_FILES) $(PPMD_FILES) $(BENCH_FILES) $(SKIM_FILE)
@@ -1332,12 +1339,29 @@ ifneq ($(DONT_BUILD_DENSITY),1)
 	cargo rustc --crate-type=$(DENSITY_BUILD_TYPE) --release -- --print=native-static-libs
 endif
 
+ifneq "$(DONT_BUILD_SNAPPY)" "1"
+bench/lz_codecs.cpp: $(SNAPPY_CONFIG)
+$(SNAPPY_FILES): $(SNAPPY_CONFIG)
+$(SNAPPY_CONFIG) &: .snappy_force
+	@cmake -S lz/snappy -B lz/snappy/build-$$PPID --fresh \
+	    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+	    -DCMAKE_BUILD_TYPE=None \
+	    -DSNAPPY_BUILD_TESTS=OFF \
+	    -DSNAPPY_BUILD_BENCHMARKS=OFF
+	@cp -av lz/snappy/build-$$PPID/*.h -t lz/snappy
+.PHONY: .snappy_force
+endif
+
 misc/skim/libskim.a: misc/skim/src/root.zig
 	@echo "Building Skim (Zig)..."
 	cd misc/skim && zig build-lib -O ReleaseFast -femit-bin=libskim.a src/root.zig -lc
+
 
 clean:
 	rm -rf lzbench lzbench.exe
 	find . -type f -name "*.o" -exec rm -f {} +
 	rm -rf $(DENSITY_SRC_DIR)target/
+ifneq "$(DONT_BUILD_SNAPPY)" "1"
+	rm -rf snappy/build-* $(SNAPPY_CONFIG)
+endif
 	rm -f misc/skim/libskim.a
