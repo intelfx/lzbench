@@ -14,9 +14,9 @@
 #	make CC=gcc-14 CXX=g++-14
 #
 # For an optimized but non-portable build, use:
-#	make MOREFLAGS="-march=native"
+#	make MOREFLAGS="-march=native" MORERUSTFLAGS="-C target-cpu=native"
 # or
-#	make USER_CFLAGS="-march=native" USER_CXXFLAGS="-march=native"
+#	make USER_CFLAGS="-march=native" USER_CXXFLAGS="-march=native" USER_RUSTFLAGS="-C target-cpu=native"
 #
 # $CFLAGS, $CXXFLAGS and $LDFLAGS from the environment will be picked up, but
 # have lower priority than project's own flags. To give priority to $*FLAGS,
@@ -127,6 +127,7 @@ endif
 DEFINES     += -I.
 CODE_FLAGS  += -Wno-unknown-pragmas -Wno-sign-compare -Wno-conversion -Wno-error=int-conversion
 LINK_FLAGS  += -pthread
+RUST_FLAGS  += -C linker=$(lastword $(CXX))
 LDLIBS_LIBDL =
 
 # don't use "-ffast-math" for clang < 10.0
@@ -149,11 +150,13 @@ ifeq ($(HONORFLAGS), )
     EXTCFLAGS := $(CFLAGS)
     EXTCXXFLAGS := $(CXXFLAGS)
     EXTLDFLAGS := $(LDFLAGS)
+    EXTRUSTFLAGS := $(RUSTFLAGS)
 else
     # user flags take priority
     USER_CFLAGS := $(CFLAGS)
     USER_CXXFLAGS := $(CXXFLAGS)
     USER_LDFLAGS := $(LDFLAGS)
+    USER_RUSTFLAGS := $(RUSTFLAGS)
 endif
 
 CXXFLAGS  = $(EXTCXXFLAGS) $(CODE_FLAGS) $(OPT_FLAGS_O3) $(DEFINES) $(MOREFLAGS) $(USER_CXXFLAGS)
@@ -164,6 +167,8 @@ LDLIBS    = $(LDLIBS_LIBDL)
 ifeq ($(detected_OS), Darwin)
     CXXFLAGS += -std=c++14
 endif
+
+RUSTFLAGS = $(EXTRUSTFLAGS) $(RUST_FLAGS)                          $(MORERUSTFLAGS) $(USER_RUSTFLAGS)
 
 
 LZ_CODECS     = bench/lz_codecs.o
@@ -255,13 +260,22 @@ ifneq ($(DONT_BUILD_DENSITY),1)
     else ifeq ($(BUILD_ARCH),32-bit)         # Skip user requested 32-bit compilation
     else ifneq (,$(filter Windows%,$(OS)))   # Skip Windows builds due to undefined reference errors on linking even when adding required native static libs to linking dependencies
     else
-        ifeq ($(BUILD_STATIC),1)
-            DENSITY_BUILD_TYPE=staticlib
-        else
-            DENSITY_BUILD_TYPE=cdylib
-        endif
+        # $BUILD_STATIC only affects linking of system runtime libraries.
+        # Every other compression algorithm is compiled into the binary.
+        # Thus, is inconsistent to have it also affect linking of one specific
+        # algorithm.
 
-        LDFLAGS += -Wl,-rpath,$(DENSITY_SRC_DIR)target/release -L$(DENSITY_SRC_DIR)target/release -ldensity_rs
+        # ifeq ($(BUILD_STATIC),1)
+            DENSITY_BUILD_TYPE=staticlib
+            DENSITY_LIB=$(DENSITY_SRC_DIR)target/release/libdensity_rs.a
+        # else
+        #     DENSITY_BUILD_TYPE=cdylib
+        #     DENSITY_RPATH = -Wl,-rpath,$(DENSITY_SRC_DIR)target/release
+        #     LDFLAGS += $(DENSITY_RPATH)
+        #     DENSITY_LIB=$(DENSITY_SRC_DIR)target/release/libdensity_rs.so
+        # endif
+
+        LDLIBS += -L$(DENSITY_SRC_DIR)target/release -ldensity_rs
         DONT_BUILD_DENSITY := 0
     endif
 endif
@@ -1200,7 +1214,7 @@ lzbench: $(BUGGY_C_FILES) $(BUGGY_CC_FILES) $(BUGGY_CXX_FILES) $(ACEAPEX_FILES) 
 	$(CXX) $^ -o $@ $(LDFLAGS) $(LDLIBS)
 	@echo Linked GCC_VERSION=$(GCC_VERSION) CLANG_VERSION=$(CLANG_VERSION) COMPILER=$(COMPILER)
 
-$(BENCH_MAIN): bench/lzbench.cpp bench/lzbench.h bench/threadpool.h bench/codecs.h DENSITY_LIB
+$(BENCH_MAIN): bench/lzbench.cpp bench/lzbench.h bench/threadpool.h bench/codecs.h $(DENSITY_LIB)
 
 # disable the implicit rule for making a binary out of a single object file
 %: %.o
@@ -1372,11 +1386,10 @@ $(BSC_CUDA_FILES): %.cu.o: %.cu
 	@$(MKDIR) $(dir $@)
 	$(CUDA_CC) $(CUDA_CXXFLAGS) $(BSC_FLAGS) -c $< -o $@
 
-DENSITY_LIB:
 ifneq ($(DONT_BUILD_DENSITY),1)
+$(DENSITY_LIB):
 	@echo "Building Density..."
 	cd $(DENSITY_SRC_DIR) && \
-	RUSTFLAGS="-C target-cpu=native -C linker=$(lastword $(CXX))" \
 	cargo rustc --crate-type=$(DENSITY_BUILD_TYPE) --release -- --print=native-static-libs
 endif
 
