@@ -1178,6 +1178,14 @@ ifeq "$(ENABLE_CUDA)" "1"
     # drop flags that are likely to cause incompatibilities
     CUDA_CXXFLAGS := $(filter-out -Wno-error% -Werror%,$(CUDA_CXXFLAGS)) -Wno-error
 
+    # if CUDA uses a different host compiler than the regular $CXX, disable LTO
+    # to avoid failures due to incompatible bitstream
+    ifneq "$(NVCC_CCBIN)" ""
+        ifneq "1" "$(shell [ '$(NVCC_CCBIN)' -ef '$(CXX)' ] && echo 1)"
+            CUDA_CXXFLAGS := $(filter-out -flto%,$(CUDA_CXXFLAGS)) -fno-lto
+        endif
+    endif
+
     ACEAPEX_CUDA_FILES = lz/aceapex/cuda/aceapex_cuda.cu.o lz/aceapex/cuda/aceapex_cuda_lzbench.o
 
   ifeq "$(DONT_BUILD_GPUCOMPACT)" "1"
