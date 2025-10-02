@@ -1309,7 +1309,7 @@ $(LZO_FILES): %.o : %.c
 
 $(LZSSE_FILES): %.o : %.cpp
 	@$(MKDIR) $(dir $@)
-	$(CXX) $(CXXFLAGS) -std=c++0x -msse4.1 $< -c -o $@
+	$(CXX) $(CXXFLAGS) $< -c -o $@
 
 $(OPENZL_C_FILES): %.o : %.c
 	@$(MKDIR) $(dir $@)
