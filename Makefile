@@ -263,6 +263,8 @@ cargo_at_least = $(shell printf "%s\n$(1)\n" "$(CARGO_VERSION)" | sort -V | head
 #   - for a Rust codec, add its cargo feature to RUST_FEATURES and its sources
 #     to RUST_DEPS (see "Rust codecs" below),
 #   - add rules for objects the generic %.o rules below cannot build,
+#   - add include paths for the bench/*.o that include its headers, with
+#     "bench/<file>.o: CODEC_FLAGS += ...",
 #   - add objects that DONT_BUILD_NAME does not switch off as a separate
 #     group: "OBJ_GROUPS += GROUP" with GROUP_OBJS and GROUP_FLAGS.
 #
@@ -352,11 +354,11 @@ ifneq "$(DISABLE_THREADING)" "1"
     BENCH_OBJS += bench/threadpool.o
 endif
 
-bench/lz_codecs.o:        CODEC_FLAGS = $(addprefix -I$(SRC),lz lz/misa77/include)
-bench/lz_entropy_codecs.o: CODEC_FLAGS = $(addprefix -I$(SRC),lz+entropy lz+entropy/brotli/include lz+entropy/openzl/include lz+entropy/zxc/src/lib/vendors)
-bench/buggy_codecs.o:     CODEC_FLAGS = -I$(SRC)lz+entropy/libcsc
-bench/symmetric_codecs.o: CODEC_FLAGS = $(OPENMP_CXXFLAGS)
-bench/lzbench.o:          CODEC_FLAGS = $(OPENMP_CXXFLAGS) $(if $(GIT_COMMIT),-DLZBENCH_GIT_COMMIT=\"$(GIT_COMMIT)\")
+bench/lz_codecs.o:        CODEC_FLAGS += $(addprefix -I$(SRC),lz lz/misa77/include)
+bench/lz_entropy_codecs.o: CODEC_FLAGS += $(addprefix -I$(SRC),lz+entropy lz+entropy/brotli/include lz+entropy/openzl/include lz+entropy/zxc/src/lib/vendors)
+bench/buggy_codecs.o:     CODEC_FLAGS += -I$(SRC)lz+entropy/libcsc
+bench/symmetric_codecs.o: CODEC_FLAGS += $(OPENMP_CXXFLAGS)
+bench/lzbench.o:          CODEC_FLAGS += $(OPENMP_CXXFLAGS) $(if $(GIT_COMMIT),-DLZBENCH_GIT_COMMIT=\"$(GIT_COMMIT)\")
 
 bench/lzbench.o: bench/lzbench.cpp bench/lzbench.h bench/threadpool.h bench/codecs.h
 

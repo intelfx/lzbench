@@ -9,6 +9,9 @@ misc/rust-codecs/target/
 misc/density/src/target/
 misc/density/src/Cargo.lock
 
+# snappy's CMake configuration (mk/snappy.mk)
+lz/snappy/build/
+
 # Archives
 *.zip
 
