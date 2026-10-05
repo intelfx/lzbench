@@ -148,8 +148,9 @@ CXXFLAGS  = $(CODE_FLAGS) $(OPT_FLAGS_$(OPT_LEVEL)) $(DEFINES) $(MOREFLAGS) $(US
 CFLAGS    = $(CODE_FLAGS) $(OPT_FLAGS_$(OPT_LEVEL)) $(DEFINES) $(MOREFLAGS) $(USER_CFLAGS) $(DEPFLAGS)
 # CUDA rules use the host flags without -MMD/-MP, which nvcc does not reliably
 # accept, and without -Werror=<warning>, which nvcc takes for its own -Werror
-# option and rejects
-CUDA_HOST_CXXFLAGS = $(filter-out $(DEPFLAGS) -Werror% -Wno-error%,$(CXXFLAGS))
+# option and rejects. They are also built without LTO: the host objects nvcc
+# generates each define a fatbinData symbol, which collide when LTO merges them.
+CUDA_HOST_CXXFLAGS = $(filter-out $(DEPFLAGS) -Werror% -Wno-error% -flto%,$(CXXFLAGS)) $(if $(filter -flto%,$(CXXFLAGS)),-fno-lto)
 LDFLAGS  += -pthread $(MOREFLAGS) $(USER_LDFLAGS)
 ifeq ($(detected_OS), Darwin)
     CXXFLAGS += -std=c++14
