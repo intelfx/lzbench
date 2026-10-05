@@ -338,13 +338,10 @@ RUST_TARGET_CPU ?= native
 
 ifneq ($(strip $(RUST_FEATURES)),)
     RUST_SRC_DIR := $(SRC)misc/rust-codecs/
-    ifeq ($(BUILD_STATIC),1)
-        RUST_BUILD_TYPE := staticlib
-        RUST_LIB := $(RUST_SRC_DIR)target/release/liblzbench_rust.a
-    else
-        RUST_BUILD_TYPE := cdylib
-        RUST_LIB := $(RUST_SRC_DIR)target/release/liblzbench_rust$(if $(filter Darwin,$(detected_OS)),.dylib,.so)
-    endif
+    # Like every other codec, the Rust codecs are linked into lzbench whatever
+    # BUILD_STATIC is (which only concerns the system libraries).
+    RUST_BUILD_TYPE := staticlib
+    RUST_LIB := $(RUST_SRC_DIR)target/release/liblzbench_rust.a
 
     # RUST_LIB is rebuilt when a source of an enabled codec changes, and when the
     # crate type, target CPU or set of codecs does: RUST_STAMP records those and is
@@ -356,10 +353,9 @@ ifneq ($(strip $(RUST_FEATURES)),)
     endif
     RUST_DEPS += $(RUST_STAMP) $(addprefix $(RUST_SRC_DIR),Cargo.toml Cargo.lock lib.rs .cargo/config.toml)
 
-    # linked with -l, but lzbench is relinked when the library changes
+    # linked after the objects, but lzbench is relinked when the library changes
     LINK_DEPS += $(RUST_LIB)
-    LINK_FLAGS += -Wl,-rpath,$(RUST_SRC_DIR)target/release -L$(RUST_SRC_DIR)target/release
-    LDLIBS  += -llzbench_rust
+    LDLIBS    += $(RUST_LIB)
 endif
 
 # cargo leaves an up-to-date library alone, so touch it: otherwise it would stay
@@ -424,8 +420,8 @@ CLEAN_FILES += $(BENCH_STAMP)
 # static libraries (skim) go last, after the objects that use them
 LZBENCH_OBJS = $(filter-out %.a,$(CODEC_OBJS)) $(BENCH_OBJS) $(filter %.a,$(CODEC_OBJS))
 
-# LINK_DEPS: libraries that are linked with -l (the Rust codecs), but still have
-# to be built first and trigger a relink when they change
+# LINK_DEPS: libraries that are linked through LDLIBS (the Rust codecs), but still
+# have to be built first and trigger a relink when they change
 lzbench: $(LZBENCH_OBJS) $(LINK_DEPS)
 	$(CXX) $(LDFLAGS) $(filter-out $(LINK_DEPS),$^) -o $@ $(LDLIBS) $(LDLIBS_LIBDL)
 	@echo Linked GCC_VERSION=$(GCC_VERSION) CLANG_VERSION=$(CLANG_VERSION) COMPILER=$(COMPILER)
