@@ -146,8 +146,10 @@ DEPFLAGS := $(shell printf 'int main(){return 0;}' | $(CXX) -x c++ - -MMD -MP -M
 
 CXXFLAGS  = $(CODE_FLAGS) $(OPT_FLAGS_$(OPT_LEVEL)) $(DEFINES) $(MOREFLAGS) $(USER_CXXFLAGS) $(DEPFLAGS)
 CFLAGS    = $(CODE_FLAGS) $(OPT_FLAGS_$(OPT_LEVEL)) $(DEFINES) $(MOREFLAGS) $(USER_CFLAGS) $(DEPFLAGS)
-# nvcc does not reliably accept -MMD/-MP, so CUDA rules use the host flags without them
-CUDA_HOST_CXXFLAGS = $(filter-out $(DEPFLAGS),$(CXXFLAGS))
+# CUDA rules use the host flags without -MMD/-MP, which nvcc does not reliably
+# accept, and without -Werror=<warning>, which nvcc takes for its own -Werror
+# option and rejects
+CUDA_HOST_CXXFLAGS = $(filter-out $(DEPFLAGS) -Werror% -Wno-error%,$(CXXFLAGS))
 LDFLAGS  += -pthread $(MOREFLAGS) $(USER_LDFLAGS)
 ifeq ($(detected_OS), Darwin)
     CXXFLAGS += -std=c++14
