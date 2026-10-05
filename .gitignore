@@ -13,6 +13,9 @@ misc/density/src/Cargo.lock
 lz+entropy/gobrrr/libgobrrr.h
 lz+entropy/gobrrr/libgobrrr.config
 
+# snappy's CMake configuration (mk/snappy.mk)
+lz/snappy/build/
+
 # Archives
 *.zip
 
