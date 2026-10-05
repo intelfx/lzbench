@@ -18,6 +18,11 @@
 # or
 #	make USER_CFLAGS="-march=native" USER_CXXFLAGS="-march=native"
 #
+# CFLAGS, CXXFLAGS and LDFLAGS from the environment or the command line are
+# used, but lzbench's own flags come after them and take priority. To give
+# them priority instead:
+#	make HONORFLAGS=1
+#
 # To leave a codec out (the names are the ones used in mk/*.mk):
 #	make DONT_BUILD_LZHAM=1
 #
@@ -46,9 +51,15 @@ vpath %.zig $(SOURCE_PATH)
 # Toolchain and platform
 #------------------------------------------------------------------------------
 
+# CFLAGS, CXXFLAGS and LDFLAGS are redefined in "Compiler flags" below, keep the
+# ones given in the environment or on the command line
+ENV_CFLAGS   := $(CFLAGS)
+ENV_CXXFLAGS := $(CXXFLAGS)
+ENV_LDFLAGS  := $(LDFLAGS)
+
 ifeq ($(BUILD_ARCH),32-bit)
     CODE_FLAGS += -m32
-    LDFLAGS += -m32
+    LINK_FLAGS += -m32
 endif
 
 COMPILER = $(shell $(CC) -v 2>&1 | grep -q "clang version" && echo clang || echo gcc)
@@ -77,7 +88,7 @@ ifneq (,$(filter Windows%,$(OS)))
     THREAD_MODEL := $(or $(THREAD_MODEL),win32)
     BUILD_STATIC ?= 1
     ifeq ($(BUILD_STATIC),1)
-        LDFLAGS += -static
+        LINK_FLAGS += -static
         LDLIBS  += -lshell32 -lole32 -loleaut32
     endif
 else
@@ -103,7 +114,7 @@ else
     endif
 
     ifeq ($(BUILD_STATIC),1)
-        LDFLAGS	+= -static -static-libstdc++
+        LINK_FLAGS += -static -static-libstdc++
     endif
 endif
 
@@ -144,17 +155,30 @@ OPT_LEVEL = O3
 # fall back to the old behaviour on a compiler that does not understand them.
 DEPFLAGS := $(shell printf 'int main(){return 0;}' | $(CXX) -x c++ - -MMD -MP -MF /dev/null -c -o /dev/null 2>/dev/null && printf -- '-MMD -MP')
 
-CXXFLAGS  = $(CODE_FLAGS) $(OPT_FLAGS_$(OPT_LEVEL)) $(DEFINES) $(MOREFLAGS) $(USER_CXXFLAGS) $(DEPFLAGS)
-CFLAGS    = $(CODE_FLAGS) $(OPT_FLAGS_$(OPT_LEVEL)) $(DEFINES) $(MOREFLAGS) $(USER_CFLAGS) $(DEPFLAGS)
+LINK_FLAGS += -pthread
+
+LZBENCH_CXXFLAGS = $(CODE_FLAGS) $(OPT_FLAGS_$(OPT_LEVEL)) $(DEFINES) $(MOREFLAGS) $(USER_CXXFLAGS)
+LZBENCH_CFLAGS   = $(CODE_FLAGS) $(OPT_FLAGS_$(OPT_LEVEL)) $(DEFINES) $(MOREFLAGS) $(USER_CFLAGS)
+LZBENCH_LDFLAGS  = $(LINK_FLAGS) $(MOREFLAGS) $(USER_LDFLAGS)
+ifeq ($(detected_OS), Darwin)
+    LZBENCH_CXXFLAGS += -std=c++14
+endif
+
+# "override" so that CFLAGS etc. given on the command line are added to as well
+ifeq ($(HONORFLAGS),1)
+    override CXXFLAGS = $(LZBENCH_CXXFLAGS) $(ENV_CXXFLAGS) $(DEPFLAGS)
+    override CFLAGS   = $(LZBENCH_CFLAGS) $(ENV_CFLAGS) $(DEPFLAGS)
+    override LDFLAGS  = $(LZBENCH_LDFLAGS) $(ENV_LDFLAGS)
+else
+    override CXXFLAGS = $(ENV_CXXFLAGS) $(LZBENCH_CXXFLAGS) $(DEPFLAGS)
+    override CFLAGS   = $(ENV_CFLAGS) $(LZBENCH_CFLAGS) $(DEPFLAGS)
+    override LDFLAGS  = $(ENV_LDFLAGS) $(LZBENCH_LDFLAGS)
+endif
 # CUDA rules use the host flags without -MMD/-MP, which nvcc does not reliably
 # accept, and without -Werror=<warning>, which nvcc takes for its own -Werror
 # option and rejects. They are also built without LTO: the host objects nvcc
 # generates each define a fatbinData symbol, which collide when LTO merges them.
 CUDA_HOST_CXXFLAGS = $(filter-out $(DEPFLAGS) -Werror% -Wno-error% -flto%,$(CXXFLAGS)) $(if $(filter -flto%,$(CXXFLAGS)),-fno-lto)
-LDFLAGS  += -pthread $(MOREFLAGS) $(USER_LDFLAGS)
-ifeq ($(detected_OS), Darwin)
-    CXXFLAGS += -std=c++14
-endif
 
 
 #------------------------------------------------------------------------------
@@ -170,7 +194,7 @@ else
     ifeq ($(HAVE_OPENMP),1)
         $(info OpenMP found: compiling bsc with OMP multithreading)
         OPENMP_CXXFLAGS = -fopenmp
-        LDFLAGS += -fopenmp
+        LINK_FLAGS += -fopenmp
     else
         $(info OpenMP not found: compiling bsc without multithreading)
     endif
@@ -195,7 +219,7 @@ ifeq "$(ENABLE_CUDA)" "1"
     else
         HAVE_CUDA := 1
         DEFINES += -DBENCH_HAS_CUDA -I$(CUDA_BASE)/include
-        LDFLAGS += -L$(CUDA_BASE)/lib64 -Wl,-rpath=$(CUDA_BASE)/lib64
+        LINK_FLAGS += -L$(CUDA_BASE)/lib64 -Wl,-rpath=$(CUDA_BASE)/lib64
         LDLIBS  += -lcudart
         CUDA_COMPILER = nvcc
         CUDA_CC = $(CUDA_BASE)/bin/nvcc --compiler-bindir $(CXX)
@@ -264,7 +288,7 @@ cargo_at_least = $(shell printf "%s\n$(1)\n" "$(CARGO_VERSION)" | sort -V | head
 # "make DONT_BUILD_NAME=1" leaves NAME_OBJS out and defines BENCH_REMOVE_NAME,
 # which removes the codec from bench/*.cpp. A mk file may also:
 #   - disable its codec on some platforms with "DONT_BUILD_NAME ?= 1",
-#   - add to DEFINES, LDFLAGS, LDLIBS, LINK_DEPS, CLEAN_FILES or CLEAN_DIRS,
+#   - add to DEFINES, LINK_FLAGS, LDLIBS, LINK_DEPS, CLEAN_FILES or CLEAN_DIRS,
 #   - for a Rust codec, add its cargo feature to RUST_FEATURES and its sources
 #     to RUST_DEPS (see "Rust codecs" below),
 #   - add rules for objects the generic %.o rules below cannot build,
@@ -334,7 +358,7 @@ ifneq ($(strip $(RUST_FEATURES)),)
 
     # linked with -l, but lzbench is relinked when the library changes
     LINK_DEPS += $(RUST_LIB)
-    LDFLAGS += -Wl,-rpath,$(RUST_SRC_DIR)target/release -L$(RUST_SRC_DIR)target/release
+    LINK_FLAGS += -Wl,-rpath,$(RUST_SRC_DIR)target/release -L$(RUST_SRC_DIR)target/release
     LDLIBS  += -llzbench_rust
 endif
 
