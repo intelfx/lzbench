@@ -7,6 +7,6 @@ ifneq ($(DONT_BUILD_NVCOMP),1)
     NVCOMP_OBJS  := $(patsubst $(SRC)%,%.o,$(wildcard $(addprefix $(SRC)misc/nvcomp/src/, \
                         *.cu lowlevel/*.cu *.cpp lowlevel/*.cpp)))
     NVCOMP_FLAGS := -I$(SRC)misc/nvcomp/include -I$(SRC)misc/nvcomp/src -I$(SRC)misc/nvcomp/src/lowlevel
-    LDFLAGS_LIBDL = $(LIBDL)
+    LDLIBS_LIBDL = $(LIBDL)
 endif
 endif

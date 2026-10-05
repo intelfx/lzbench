@@ -77,7 +77,8 @@ ifneq (,$(filter Windows%,$(OS)))
     THREAD_MODEL := $(or $(THREAD_MODEL),win32)
     BUILD_STATIC ?= 1
     ifeq ($(BUILD_STATIC),1)
-        LDFLAGS += -lshell32 -lole32 -loleaut32 -static
+        LDFLAGS += -static
+        LDLIBS  += -lshell32 -lole32 -loleaut32
     endif
 else
     THREAD_MODEL := $(or $(THREAD_MODEL),posix)
@@ -191,7 +192,8 @@ ifeq "$(ENABLE_CUDA)" "1"
     else
         HAVE_CUDA := 1
         DEFINES += -DBENCH_HAS_CUDA -I$(CUDA_BASE)/include
-        LDFLAGS += -L$(CUDA_BASE)/lib64 -lcudart -Wl,-rpath=$(CUDA_BASE)/lib64
+        LDFLAGS += -L$(CUDA_BASE)/lib64 -Wl,-rpath=$(CUDA_BASE)/lib64
+        LDLIBS  += -lcudart
         CUDA_COMPILER = nvcc
         CUDA_CC = $(CUDA_BASE)/bin/nvcc --compiler-bindir $(CXX)
         # ("?define" rather than "#define": GNU make 3.81 takes the '#' for a comment)
@@ -259,7 +261,7 @@ cargo_at_least = $(shell printf "%s\n$(1)\n" "$(CARGO_VERSION)" | sort -V | head
 # "make DONT_BUILD_NAME=1" leaves NAME_OBJS out and defines BENCH_REMOVE_NAME,
 # which removes the codec from bench/*.cpp. A mk file may also:
 #   - disable its codec on some platforms with "DONT_BUILD_NAME ?= 1",
-#   - add to DEFINES, LDFLAGS, LINK_DEPS, CLEAN_FILES or CLEAN_DIRS,
+#   - add to DEFINES, LDFLAGS, LDLIBS, LINK_DEPS, CLEAN_FILES or CLEAN_DIRS,
 #   - for a Rust codec, add its cargo feature to RUST_FEATURES and its sources
 #     to RUST_DEPS (see "Rust codecs" below),
 #   - add rules for objects the generic %.o rules below cannot build,
@@ -329,7 +331,8 @@ ifneq ($(strip $(RUST_FEATURES)),)
 
     # linked with -l, but lzbench is relinked when the library changes
     LINK_DEPS += $(RUST_LIB)
-    LDFLAGS += -Wl,-rpath,$(RUST_SRC_DIR)target/release -L$(RUST_SRC_DIR)target/release -llzbench_rust
+    LDFLAGS += -Wl,-rpath,$(RUST_SRC_DIR)target/release -L$(RUST_SRC_DIR)target/release
+    LDLIBS  += -llzbench_rust
 endif
 
 # cargo leaves an up-to-date library alone, so touch it: otherwise it would stay
@@ -397,7 +400,7 @@ LZBENCH_OBJS = $(filter-out %.a,$(CODEC_OBJS)) $(BENCH_OBJS) $(filter %.a,$(CODE
 # LINK_DEPS: libraries that are linked with -l (the Rust codecs), but still have
 # to be built first and trigger a relink when they change
 lzbench: $(LZBENCH_OBJS) $(LINK_DEPS)
-	$(CXX) $(filter-out $(LINK_DEPS),$^) -o $@ $(LDFLAGS) $(LDFLAGS_LIBDL)
+	$(CXX) $(LDFLAGS) $(filter-out $(LINK_DEPS),$^) -o $@ $(LDLIBS) $(LDLIBS_LIBDL)
 	@echo Linked GCC_VERSION=$(GCC_VERSION) CLANG_VERSION=$(CLANG_VERSION) COMPILER=$(COMPILER)
 
 
