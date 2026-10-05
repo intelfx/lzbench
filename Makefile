@@ -28,6 +28,8 @@
 #
 # CUDA codecs (nvcomp, bsc_cuda, aceapex_cuda, gpucompact):
 #	make ENABLE_CUDA=1 [CUDA_BASE=/usr/local/cuda]
+# If nvcc does not support $(CXX), give it another host compiler:
+#	make ENABLE_CUDA=1 NVCC_CCBIN=g++-14
 #
 # Every codec is described by its own file in mk/, see "Codecs" below.
 
@@ -223,7 +225,7 @@ ifeq "$(ENABLE_CUDA)" "1"
         LINK_FLAGS += -L$(CUDA_BASE)/lib64 -Wl,-rpath=$(CUDA_BASE)/lib64
         LDLIBS  += -lcudart
         CUDA_COMPILER = nvcc
-        CUDA_CC = $(CUDA_BASE)/bin/nvcc --compiler-bindir $(CXX)
+        CUDA_CC = $(CUDA_BASE)/bin/nvcc --compiler-bindir $(or $(NVCC_CCBIN),$(CXX))
         # ("?define" rather than "#define": GNU make 3.81 takes the '#' for a comment)
         CUDA_VERSION := $(shell awk '$$1 ~ /^.define$$/ && $$2 == "CUDA_VERSION" { print $$3; exit;}' $(CUDA_H))
         ifeq "$(CUDA_VERSION)" ""
