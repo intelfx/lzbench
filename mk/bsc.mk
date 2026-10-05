@@ -23,5 +23,5 @@ ifeq ($(HAVE_CUDA),1)
 endif
 
 ifneq ($(DONT_BUILD_BSC),1)
-    LDFLAGS_LIBDL = $(LIBDL)
+    LDLIBS_LIBDL = $(LIBDL)
 endif
