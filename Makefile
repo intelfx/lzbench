@@ -18,9 +18,9 @@
 # or
 #	make USER_CFLAGS="-march=native" USER_CXXFLAGS="-march=native"
 #
-# CFLAGS, CXXFLAGS and LDFLAGS from the environment or the command line are
-# used, but lzbench's own flags come after them and take priority. To give
-# them priority instead:
+# CFLAGS, CXXFLAGS, LDFLAGS and RUSTFLAGS from the environment or the command
+# line are used, but lzbench's own flags come after them and take priority.
+# To give them priority instead:
 #	make HONORFLAGS=1
 #
 # To leave a codec out (the names are the ones used in mk/*.mk):
@@ -51,11 +51,12 @@ vpath %.zig $(SOURCE_PATH)
 # Toolchain and platform
 #------------------------------------------------------------------------------
 
-# CFLAGS, CXXFLAGS and LDFLAGS are redefined in "Compiler flags" below, keep the
-# ones given in the environment or on the command line
-ENV_CFLAGS   := $(CFLAGS)
-ENV_CXXFLAGS := $(CXXFLAGS)
-ENV_LDFLAGS  := $(LDFLAGS)
+# CFLAGS, CXXFLAGS, LDFLAGS and RUSTFLAGS are redefined below, keep the ones
+# given in the environment or on the command line
+ENV_CFLAGS    := $(CFLAGS)
+ENV_CXXFLAGS  := $(CXXFLAGS)
+ENV_LDFLAGS   := $(LDFLAGS)
+ENV_RUSTFLAGS := $(RUSTFLAGS)
 
 ifeq ($(BUILD_ARCH),32-bit)
     CODE_FLAGS += -m32
@@ -336,6 +337,13 @@ CLEAN_DIRS += $(SRC)misc/rust-codecs/target/
 # built for. Empty leaves the choice to rustc.
 RUST_TARGET_CPU ?= native
 
+LZBENCH_RUSTFLAGS = $(if $(RUST_TARGET_CPU),-C target-cpu=$(RUST_TARGET_CPU)) -C linker=$(lastword $(CXX)) $(USER_RUSTFLAGS)
+ifeq ($(HONORFLAGS),1)
+    override RUSTFLAGS = $(LZBENCH_RUSTFLAGS) $(ENV_RUSTFLAGS)
+else
+    override RUSTFLAGS = $(ENV_RUSTFLAGS) $(LZBENCH_RUSTFLAGS)
+endif
+
 ifneq ($(strip $(RUST_FEATURES)),)
     RUST_SRC_DIR := $(SRC)misc/rust-codecs/
     # Like every other codec, the Rust codecs are linked into lzbench whatever
@@ -344,10 +352,10 @@ ifneq ($(strip $(RUST_FEATURES)),)
     RUST_LIB := $(RUST_SRC_DIR)target/release/liblzbench_rust.a
 
     # RUST_LIB is rebuilt when a source of an enabled codec changes, and when the
-    # crate type, target CPU or set of codecs does: RUST_STAMP records those and is
+    # crate type, RUSTFLAGS or set of codecs does: RUST_STAMP records those and is
     # rewritten, while the Makefile is read, whenever they differ.
     RUST_STAMP  := $(RUST_SRC_DIR)target/lzbench-config
-    RUST_CONFIG := $(RUST_BUILD_TYPE) cpu=$(RUST_TARGET_CPU) $(strip $(RUST_FEATURES))
+    RUST_CONFIG := $(RUST_BUILD_TYPE) flags=$(strip $(RUSTFLAGS)) features=$(strip $(RUST_FEATURES))
     ifneq ($(shell cat $(RUST_STAMP) 2>/dev/null),$(RUST_CONFIG))
         $(shell mkdir -p $(RUST_SRC_DIR)target && echo '$(RUST_CONFIG)' > $(RUST_STAMP))
     endif
@@ -365,7 +373,7 @@ ifneq ($(RUST_LIB),)
 $(RUST_LIB): $(RUST_DEPS)
 	@echo "Building Rust codecs ($(strip $(RUST_FEATURES)))..."
 	cd $(RUST_SRC_DIR) && \
-	RUSTFLAGS="$(if $(RUST_TARGET_CPU),-C target-cpu=$(RUST_TARGET_CPU) )-C linker=$(lastword $(CXX))" \
+	RUSTFLAGS="$(strip $(RUSTFLAGS))" \
 	cargo rustc --locked --offline --features "$(strip $(RUST_FEATURES))" --crate-type=$(RUST_BUILD_TYPE) --release -- --print=native-static-libs
 	touch $@
 endif
